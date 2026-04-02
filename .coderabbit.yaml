@@ -1,0 +1,70 @@
+# CodeRabbit Configuration — PQN Security Gates
+# This file tells CodeRabbit (OpenAI-powered, NOT Claude) what to enforce on every PR.
+# Different LLM catches blind spots that Claude misses.
+
+language: en-US
+tone_instructions: >
+  Be direct and specific. Cite exact file paths and line numbers.
+  Flag severity as CRITICAL, HIGH, MEDIUM, or LOW.
+  No pleasantries. Act like a Staff Engineer doing a security audit.
+
+early_access: false
+
+reviews:
+  profile: assertive
+  request_changes_workflow: true
+  high_level_summary: true
+  poem: false
+  collapse_walkthrough: false
+  sequence_diagrams: false
+  auto_review:
+    enabled: true
+    drafts: false
+
+  path_instructions:
+    - path: "**/*"
+      instructions: |
+        PQN SECURITY GATES (non-negotiable, block merge if violated):
+
+        1. NETWORK EXPOSURE: Flag CRITICAL if any code exposes services behind
+           Tailscale to the public internet. This includes Tailscale Funnel, ngrok,
+           Cloudflare Tunnel, or any tunneling. Services on Tower (pqn-brain,
+           Graphiti, FalkorDB, Ollama, Open WebUI) are TAILSCALE ONLY.
+
+        2. DATA FLOW: Flag CRITICAL if user messages, chat content, or business
+           data passes through ANY third-party cloud service (Supabase, AWS, etc)
+           in plaintext before reaching the processor. Supabase relay patterns
+           for sensitive data are a known anti-pattern in this codebase.
+
+        3. CREDENTIAL BLAST RADIUS: Flag HIGH if a single leaked credential would
+           grant access to the knowledge graph (Graphiti/FalkorDB), all business
+           entities, or the entire PQN infrastructure. Credentials must be
+           scoped to minimum necessary permissions.
+
+        4. PII HANDLING: Flag CRITICAL if names, addresses, SSNs, financial data,
+           or health records leave the Tailscale perimeter without passing through
+           the Presidio PII filter in pqn-brain.
+
+        ARCHITECTURE RULES:
+        - pqn-brain, Graphiti, FalkorDB, Ollama = behind Tailscale, never public
+        - pqn-command on Vercel = the ONLY public-facing service
+        - Data flows public to private, never private to public
+        - The Data Arbiter (pqn-brain) decides what external LLMs see
+        - $0 cloud API cost rule: Claude Code CLI via Max sub, not paid API
+
+    - path: "docker-compose*.yml"
+      instructions: |
+        Check for ports exposed on 0.0.0.0 (should be 127.0.0.1 only for
+        internal services). Check for volume mounts of credential directories.
+        Check for environment variables containing secrets in plaintext.
+
+    - path: "*.env*"
+      instructions: |
+        This file should NOT be committed. Flag CRITICAL if it contains
+        actual secrets, API keys, or connection strings.
+
+    - path: "src/lib/call-*.ts"
+      instructions: |
+        These are dispatch modules. Check if user messages pass through
+        any third-party service in plaintext. The Supabase mini_tasks relay
+        is a known Pillar 6 gap (see issue #29 on nptrsn/pqn-hq).
